@@ -11,6 +11,8 @@ Reads edge events (RLE) rather than per-sample data.
 
 from __future__ import annotations
 
+import _bootstrap  # noqa: F401 — must precede stdlib imports for .pyd loading
+
 import io
 import re
 import struct

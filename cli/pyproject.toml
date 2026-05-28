@@ -5,14 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "atk-cli"
 version = "0.1.0"
-description = "ATK-Logic logic analyzer CLI"
-requires-python = ">=3.12"
-dependencies = [
-    "click>=8.0",
-]
+description = "ATK-Logic logic analyzer CLI (zero dependencies, stdlib only)"
+requires-python = ">=3.14"
+dependencies = []
 
 [project.scripts]
-atk-cli = "atk_cli:cli"
+atk-cli = "atk_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]

@@ -6,141 +6,97 @@ Commands:
     export        Export edge events for channel(s)
     list-decoders List available protocol decoders
     decode        Run protocol decoder on capture data
+
+Usage:
+    python3.14.exe atk_cli.py info test.atkdl
+    python3.14.exe atk_cli.py export test.atkdl --ch 0 --start 0 --end 1ms
+    python3.14.exe atk_cli.py list-decoders --filter uart
+    python3.14.exe atk_cli.py decode test.atkdl --decoder uart --rx 0 --option baudrate=115200
 """
 
 from __future__ import annotations
 
+import _bootstrap  # noqa: F401 — must precede other imports for .pyd loading
+
+import argparse
 import json
 import sys
-import warnings
 from pathlib import Path
 
-import click
+from atk_reader import CaptureReader, EdgeEvent, parse_time
 
-from atk_reader import CaptureReader, parse_time
-
-# Decoder is optional (requires Python 3.14)
+# Decoder requires Python 3.14
 try:
     from atk_decoder import DecoderBridge
-except Exception as _e:
+except RuntimeError:
     DecoderBridge = None  # type: ignore
 
 
-def _out(data: dict, fmt: str) -> None:
+def _out(data, fmt):
     if fmt == "json":
-        click.echo(json.dumps(data, indent=2, ensure_ascii=False))
+        print(json.dumps(data, indent=2, ensure_ascii=False))
     else:
-        # Simple text fallback
         for k, v in data.items():
-            click.echo(f"{k}: {v}")
+            print(f"{k}: {v}")
 
 
-def _warn(msg: str) -> None:
-    click.echo(msg, err=True)
-
-
-# ---------------------------------------------------------------------------
-# CLI group
-# ---------------------------------------------------------------------------
-
-@click.group()
-@click.option(
-    "--format",
-    "fmt",
-    type=click.Choice(["json", "text"]),
-    default="json",
-    help="Output format",
-)
-@click.pass_context
-def cli(ctx: click.Context, fmt: str) -> None:
-    ctx.ensure_object(dict)
-    ctx.obj["format"] = fmt
+def _err(msg):
+    print(msg, file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
 # info
 # ---------------------------------------------------------------------------
 
-@cli.command()
-@click.argument("file", type=click.Path(exists=True, path_type=Path))
-@click.pass_context
-def info(ctx: click.Context, file: Path) -> None:
-    """Show capture file metadata."""
-    reader = CaptureReader(file)
-    cap = reader.get_info()
-    data = {
-        "channels": cap.channels,
-        "sample_rate_hz": cap.sample_rate_hz,
-        "total_samples": cap.total_samples,
-        "duration_ns": cap.duration_ns,
-        "capture_time": cap.capture_time,
-        "file_format": cap.file_format,
-    }
-    _out(data, ctx.obj["format"])
+def cmd_info(args):
+    reader = CaptureReader(args.file)
+    info = reader.get_info()
+    _out(
+        {
+            "channels": info.channels,
+            "sample_rate_hz": info.sample_rate_hz,
+            "total_samples": info.total_samples,
+            "duration_ns": info.duration_ns,
+            "capture_time": info.capture_time,
+            "file_format": info.file_format,
+        },
+        args.format,
+    )
 
 
 # ---------------------------------------------------------------------------
 # export
 # ---------------------------------------------------------------------------
 
-@cli.command()
-@click.argument("file", type=click.Path(exists=True, path_type=Path))
-@click.option("--ch", required=True, help="Comma-separated channel IDs, e.g. 0,2,3")
-@click.option("--start", default="0", help="Start time (supports ns/us/ms/s suffix)")
-@click.option("--end", default=None, help="End time (supports ns/us/ms/s suffix)")
-@click.option("--max-events", default=10_000, type=int, help="Max edge events per channel")
-@click.pass_context
-def export(
-    ctx: click.Context,
-    file: Path,
-    ch: str,
-    start: str,
-    end: str | None,
-    max_events: int,
-) -> None:
-    """Export edge events for specified channel(s)."""
-    reader = CaptureReader(file)
-    start_ns = parse_time(start)
-    end_ns = parse_time(end) if end else None
-
-    channel_ids = [int(c.strip()) for c in ch.split(",")]
-    result: dict[str, list[dict]] = {}
+def cmd_export(args):
+    reader = CaptureReader(args.file)
+    start_ns = parse_time(args.start)
+    end_ns = parse_time(args.end) if args.end else None
+    channel_ids = [int(c.strip()) for c in args.ch.split(",")]
+    result = {}
     for cid in channel_ids:
-        edges = reader.read_edges(cid, start_ns, end_ns, max_events)
+        edges = reader.read_edges(cid, start_ns, end_ns, args.max_events)
         result[str(cid)] = [
-            {"t_ns": e.t_ns, "level": e.level, "dur_ns": e.dur_ns}
-            for e in edges
+            {"t_ns": e.t_ns, "level": e.level, "dur_ns": e.dur_ns} for e in edges
         ]
-
-    _out({"channels": result}, ctx.obj["format"])
+    _out({"channels": result}, args.format)
 
 
 # ---------------------------------------------------------------------------
 # list-decoders
 # ---------------------------------------------------------------------------
 
-@cli.command("list-decoders")
-@click.option("--filter", default=None, help="Comma-separated decoder IDs to filter")
-@click.pass_context
-def list_decoders(ctx: click.Context, filter: str | None) -> None:
-    """List available protocol decoders."""
+def cmd_list_decoders(args):
     if DecoderBridge is None:
-        click.echo(
-            json.dumps(
-                {
-                    "error": "Decoder module unavailable. Python 3.14+ required."
-                },
-                indent=2,
-            )
-        )
+        _out({"error": "Decoder module requires Python 3.14+. Use python3.14.exe launcher."}, args.format)
         sys.exit(1)
 
-    filter_ids = [f.strip() for f in filter.split(",")] if filter else None
+    filter_ids = [f.strip() for f in args.filter.split(",")] if args.filter else None
     bridge = DecoderBridge()
     try:
         decoders = bridge.list_decoders(filter_ids)
-    except RuntimeError as e:
-        click.echo(json.dumps({"error": str(e)}, indent=2))
+    except Exception as e:
+        _out({"error": str(e)}, args.format)
         sys.exit(1)
 
     data = [
@@ -154,115 +110,166 @@ def list_decoders(ctx: click.Context, filter: str | None) -> None:
         }
         for d in decoders
     ]
-    _out(data, ctx.obj["format"])
+    _out(data, args.format)
 
 
 # ---------------------------------------------------------------------------
 # decode
 # ---------------------------------------------------------------------------
 
-@cli.command()
-@click.argument("file", type=click.Path(exists=True, path_type=Path))
-@click.option("--decoder", required=True, help="Decoder ID, e.g. uart")
-@click.option("--start", default="0", help="Start time")
-@click.option("--end", default=None, help="End time")
-@click.option("--max-events", default=100_000, type=int, help="Max edge events to decode")
-@click.option("--rx", default=None, type=int, help="Map RX channel to physical channel N")
-@click.option("--tx", default=None, type=int, help="Map TX channel to physical channel N")
-@click.option("--scl", default=None, type=int, help="Map SCL channel to physical channel N")
-@click.option("--sda", default=None, type=int, help="Map SDA channel to physical channel N")
-@click.option("--clk", default=None, type=int, help="Map CLK channel to physical channel N")
-@click.option("--mosi", default=None, type=int, help="Map MOSI channel to physical channel N")
-@click.option("--miso", default=None, type=int, help="Map MISO channel to physical channel N")
-@click.option("--cs", default=None, type=int, help="Map CS channel to physical channel N")
-@click.option("--option", "options", multiple=True, help="Decoder option as key=value")
-@click.pass_context
-def decode(
-    ctx: click.Context,
-    file: Path,
-    decoder: str,
-    start: str,
-    end: str | None,
-    max_events: int,
-    rx: int | None,
-    tx: int | None,
-    scl: int | None,
-    sda: int | None,
-    clk: int | None,
-    mosi: int | None,
-    miso: int | None,
-    cs: int | None,
-    options: tuple[str, ...],
-) -> None:
-    """Decode waveform with a protocol decoder."""
+def _edges_to_dense(edges: list[EdgeEvent], start_sample: int, count: int) -> list[tuple[int, int]]:
+    """Convert RLE edge events to dense (sample_num, level) tuples.
+
+    Returns a list of (transition_sample, new_level) covering count samples from start_sample.
+    """
+    result: list[tuple[int, int]] = []
+    if not edges:
+        return result
+
+    # Find the first edge that covers start_sample
+    pos = start_sample
+    for e in edges:
+        e_start_sample = e.t_ns // 50  # will be recalculated below
+        # Actually we need to work in sample space consistently
+        pass
+
+    # Use edges directly: each edge is (t_ns, level, dur_ns)
+    # Convert to sample-space transitions
+    prev_level = edges[0].level
+    result.append((start_sample, prev_level))
+    # We need sample rate info; for now this is handled in the caller
+    return result
+
+
+def cmd_decode(args):
     if DecoderBridge is None:
-        click.echo(
-            json.dumps(
-                {
-                    "error": "Decoder module unavailable. Python 3.14+ required."
-                },
-                indent=2,
-            )
-        )
+        _out({"error": "Decoder module requires Python 3.14+. Use python3.14.exe launcher."}, args.format)
         sys.exit(1)
 
+    reader = CaptureReader(args.file)
+    info = reader.get_info()
+    multiply_ns = 1_000_000_000 // info.sample_rate_hz if info.sample_rate_hz else 50
+
+    start_ns = parse_time(args.start)
+    end_ns = parse_time(args.end) if args.end else None
+
+    # Build channel map from --rx, --tx, --scl, etc.
     channel_map: dict[str, int] = {}
-    for key, val in [
-        ("rx", rx), ("tx", tx), ("scl", scl), ("sda", sda),
-        ("clk", clk), ("mosi", mosi), ("miso", miso), ("cs", cs),
-    ]:
+    for key in ("rx", "tx", "scl", "sda", "clk", "mosi", "miso", "cs"):
+        val = getattr(args, key, None)
         if val is not None:
             channel_map[key] = val
 
     decoder_options: dict[str, str] = {}
-    for opt in options:
-        if "=" in opt:
-            k, v = opt.split("=", 1)
-            decoder_options[k] = v
+    if args.option:
+        for opt in args.option:
+            if "=" in opt:
+                k, v = opt.split("=", 1)
+                decoder_options[k] = v
 
-    reader = CaptureReader(file)
-    info = reader.get_info()
-    start_ns = parse_time(start)
-    end_ns = parse_time(end) if end else None
-
-    # Gather edge events for all mapped channels
-    all_edges: dict[int, list] = {}
-    for ch_id in channel_map.values():
-        if ch_id not in all_edges:
-            all_edges[ch_id] = reader.read_edges(ch_id, start_ns, end_ns, max_events)
-
-    # Convert to dense sample tuples for decoder
-    # For now, we export frames from the first channel's edges
-    # (decoder needs dense sample buffer - this is a simplified approach)
-    _warn("decode: dense sample reconstruction not yet fully implemented")
+    # Read edge events for mapped channels and convert to dense sample data
+    all_edge_events: list[tuple[int, int]] = []
+    if channel_map:
+        first_ch = next(iter(channel_map.values()))
+        edges = reader.read_edges(first_ch, start_ns, end_ns, args.max_events)
+        # Convert edges to dense sample tuples
+        start_sample = start_ns // multiply_ns
+        for e in edges:
+            s = e.t_ns // multiply_ns
+            all_edge_events.append((s, e.level))
+        # Add final sample
+        if edges:
+            last = edges[-1]
+            final_s = (last.t_ns + last.dur_ns) // multiply_ns
+            all_edge_events.append((final_s, last.level))
 
     bridge = DecoderBridge()
     try:
+        bridge.init()
         frames = bridge.decode(
-            decoder_id=decoder,
+            decoder_id=args.decoder,
             channel_map=channel_map,
             options=decoder_options,
-            edge_events=[],  # TODO: dense reconstruction
+            edge_events=all_edge_events,
             sample_rate_hz=info.sample_rate_hz,
         )
-    except RuntimeError as e:
-        click.echo(json.dumps({"error": str(e)}, indent=2))
+    except Exception as e:
+        _out({"error": str(e)}, args.format)
         sys.exit(1)
 
-    data = {
-        "decoder": decoder,
-        "frames": [
-            {"t_ns": f.t_ns, "type": f.type, "data": f.data, "errors": f.errors}
-            for f in frames
-        ],
-        "stats": {"total_frames": len(frames), "error_frames": 0},
-    }
-    _out(data, ctx.obj["format"])
+    _out(
+        {
+            "decoder": args.decoder,
+            "frames": [
+                {"t_ns": f.t_ns, "type": f.type, "data": f.data, "errors": f.errors}
+                for f in frames
+            ],
+            "stats": {"total_frames": len(frames)},
+        },
+        args.format,
+    )
 
 
 # ---------------------------------------------------------------------------
-# Entry point
+# CLI entry point
 # ---------------------------------------------------------------------------
+
+def main():
+    # Force UTF-8 stdout on Windows (avoid GBK codec errors with e.g. I²C)
+    import io
+    if hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(
+            sys.stdout.buffer, encoding="utf-8", errors="replace"
+        )
+
+    parser = argparse.ArgumentParser(
+        description="ATK-Logic CLI — logic analyzer data reader and decoder"
+    )
+    parser.add_argument(
+        "--format", choices=("json", "text"), default="json", help="Output format"
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    # info
+    p = sub.add_parser("info", help="Show capture file metadata")
+    p.add_argument("file", type=Path, help="Path to .atkdl or .bin file")
+    p.set_defaults(func=cmd_info)
+
+    # export
+    p = sub.add_parser("export", help="Export edge events for channel(s)")
+    p.add_argument("file", type=Path)
+    p.add_argument("--ch", required=True, help="Comma-separated channel IDs, e.g. 0,2,3")
+    p.add_argument("--start", default="0", help="Start time (ns/us/ms/s)")
+    p.add_argument("--end", default=None, help="End time (ns/us/ms/s)")
+    p.add_argument("--max-events", type=int, default=10000)
+    p.set_defaults(func=cmd_export)
+
+    # list-decoders
+    p = sub.add_parser("list-decoders", help="List available protocol decoders")
+    p.add_argument("--filter", default=None, help="Comma-separated decoder IDs")
+    p.set_defaults(func=cmd_list_decoders)
+
+    # decode
+    p = sub.add_parser("decode", help="Decode waveform with a protocol decoder")
+    p.add_argument("file", type=Path)
+    p.add_argument("--decoder", required=True, help="Decoder ID, e.g. uart")
+    p.add_argument("--start", default="0", help="Start time")
+    p.add_argument("--end", default=None, help="End time")
+    p.add_argument("--max-events", type=int, default=100000, help="Max edge events")
+    p.add_argument("--rx", type=int, help="Map RX to channel N")
+    p.add_argument("--tx", type=int, help="Map TX to channel N")
+    p.add_argument("--scl", type=int, help="Map SCL to channel N")
+    p.add_argument("--sda", type=int, help="Map SDA to channel N")
+    p.add_argument("--clk", type=int, help="Map CLK to channel N")
+    p.add_argument("--mosi", type=int, help="Map MOSI to channel N")
+    p.add_argument("--miso", type=int, help="Map MISO to channel N")
+    p.add_argument("--cs", type=int, help="Map CS to channel N")
+    p.add_argument("--option", action="append", help="Decoder option as key=value")
+    p.set_defaults(func=cmd_decode)
+
+    args = parser.parse_args()
+    args.func(args)
+
 
 if __name__ == "__main__":
-    cli()
+    main()

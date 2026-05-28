@@ -21,9 +21,10 @@ qrc_*.cpp
 libusb_src/
 libusb_extracted/
 
-# === Downloaded runtime (CI artifacts) ===
+# === Download & build artifacts ===
 lib/bin/*.dll
 lib/python3.14/
+cli/python3.14.exe
 
 # === IDE ===
 .vscode/

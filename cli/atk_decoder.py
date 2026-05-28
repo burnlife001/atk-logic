@@ -2,29 +2,21 @@
 ATK-Logic decoder bridge via ctypes.
 
 Wraps libsigrokdecode-4.dll to expose protocol decoders.
-Requires Python 3.14 at runtime because the DLL embeds Python C API.
+Requires Python 3.14 at runtime — use the embedded python3.14.exe launcher.
 """
 
 from __future__ import annotations
 
 import ctypes
-import json
 import sys
-import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
-
-# ---------------------------------------------------------------------------
-# Python version guard
-# ---------------------------------------------------------------------------
+from typing import Any
 
 if sys.version_info < (3, 14):
-    warnings.warn(
+    raise RuntimeError(
         "libsigrokdecode-4.dll requires Python 3.14+. "
-        "Decoder functions will fail. Install Python 3.14 and re-run.",
-        RuntimeWarning,
-        stacklevel=2,
+        "Run with: cli/python3.14.exe cli/atk_cli.py ..."
     )
 
 
@@ -36,7 +28,10 @@ class _AtkGSList(ctypes.Structure):
     pass
 
 
-_AtkGSList._fields_ = [("data", ctypes.c_void_p), ("next", ctypes.POINTER(_AtkGSList))]
+_AtkGSList._fields_ = [
+    ("data", ctypes.c_void_p),
+    ("next", ctypes.POINTER(_AtkGSList)),
+]
 
 
 class _AtkDecoder(ctypes.Structure):
@@ -74,13 +69,16 @@ class _AtkDecoderOption(ctypes.Structure):
     _fields_ = [
         ("id", ctypes.c_char_p),
         ("desc", ctypes.c_char_p),
-        ("def_val", ctypes.c_void_p),  # atk_GVariant*
+        ("def_val", ctypes.c_void_p),
         ("values", ctypes.POINTER(_AtkGSList)),
     ]
 
 
 class _AtkInputData(ctypes.Structure):
-    _fields_ = [("data", ctypes.POINTER(ctypes.c_uint8)), ("constant", ctypes.c_uint8)]
+    _fields_ = [
+        ("data", ctypes.POINTER(ctypes.c_uint8)),
+        ("constant", ctypes.c_uint8),
+    ]
 
 
 class _AtkPdOutput(ctypes.Structure):
@@ -148,123 +146,10 @@ class DecodeFrame:
 
 
 # ---------------------------------------------------------------------------
-# DLL loader
-# ---------------------------------------------------------------------------
-
-def _find_dll() -> Path:
-    """Locate libsigrokdecode-4.dll relative to project root."""
-    script_dir = Path(__file__).parent.resolve()
-    candidates = [
-        script_dir.parent / "lib" / "bin" / "libsigrokdecode-4.dll",
-        script_dir.parent / "libsigrokdecode-4.dll",
-    ]
-    for p in candidates:
-        if p.exists():
-            return p
-    raise FileNotFoundError("libsigrokdecode-4.dll not found")
-
-
-def _load_dll() -> ctypes.CDLL:
-    dll_path = _find_dll()
-    dll = ctypes.CDLL(str(dll_path))
-
-    # srd.c
-    dll.atk_decoder_init.argtypes = [ctypes.c_char_p]
-    dll.atk_decoder_init.restype = ctypes.c_int
-
-    dll.atk_decoder_exit.argtypes = []
-    dll.atk_decoder_exit.restype = ctypes.c_int
-
-    # session.c
-    dll.atk_decoder_session_new.argtypes = []
-    dll.atk_decoder_session_new.restype = ctypes.c_void_p
-
-    dll.atk_decoder_session_start.argtypes = [ctypes.c_void_p]
-    dll.atk_decoder_session_start.restype = ctypes.c_int
-
-    dll.atk_decoder_session_metadata_set_samplerate.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_uint64,
-    ]
-    dll.atk_decoder_session_metadata_set_samplerate.restype = ctypes.c_int
-
-    dll.atk_decoder_session_send.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_uint64,
-        ctypes.c_uint64,
-        ctypes.c_void_p,
-    ]
-    dll.atk_decoder_session_send.restype = ctypes.c_int
-
-    dll.atk_decoder_session_send_eof.argtypes = [ctypes.c_void_p]
-    dll.atk_decoder_session_send_eof.restype = ctypes.c_int
-
-    dll.atk_decoder_session_destroy.argtypes = [ctypes.c_void_p]
-    dll.atk_decoder_session_destroy.restype = ctypes.c_int
-
-    # decoder.c
-    dll.atk_decoder_list.argtypes = []
-    dll.atk_decoder_list.restype = ctypes.POINTER(_AtkGSList)
-
-    dll.atk_decoder_get_by_id.argtypes = [ctypes.c_char_p]
-    dll.atk_decoder_get_by_id.restype = ctypes.POINTER(_AtkDecoder)
-
-    dll.atk_decoder_load_all.argtypes = []
-    dll.atk_decoder_load_all.restype = ctypes.c_int
-
-    # instance.c
-    dll.atk_decoder_inst_new.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_char_p,
-        ctypes.c_void_p,
-    ]
-    dll.atk_decoder_inst_new.restype = ctypes.c_void_p
-
-    dll.atk_decoder_inst_channel_set_all.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-    dll.atk_decoder_inst_channel_set_all.restype = ctypes.c_int
-
-    dll.atk_decoder_inst_option_set.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-    dll.atk_decoder_inst_option_set.restype = ctypes.c_int
-
-    # hash table
-    dll.atk_decoder_hashtable_create.argtypes = []
-    dll.atk_decoder_hashtable_create.restype = ctypes.c_void_p
-
-    dll.atk_decoder_hashtable_destroy.argtypes = [ctypes.c_void_p]
-    dll.atk_decoder_hashtable_destroy.restype = None
-
-    dll.atk_decoder_hashtable_set_option.argtypes = [
-        ctypes.c_void_p,
-        ctypes.POINTER(_AtkDecoder),
-        ctypes.c_char_p,
-        ctypes.c_char_p,
-    ]
-    dll.atk_decoder_hashtable_set_option.restype = ctypes.c_int
-
-    dll.atk_decoder_hashtable_set_channel.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_char_p,
-        ctypes.c_int,
-    ]
-    dll.atk_decoder_hashtable_set_channel.restype = None
-
-    # callback
-    dll.atk_decoder_pd_output_callback_add.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_int,
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-    ]
-    dll.atk_decoder_pd_output_callback_add.restype = ctypes.c_int
-
-    return dll
-
-
-# ---------------------------------------------------------------------------
 # Helper: walk GSList
 # ---------------------------------------------------------------------------
 
-def _gslist_to_list(gslist_ptr: ctypes.POINTER(_AtkGSList)) -> list[Any]:
+def _gslist_to_list(gslist_ptr) -> list[Any]:
     items = []
     while gslist_ptr:
         items.append(gslist_ptr.contents.data)
@@ -279,32 +164,182 @@ def _gslist_to_list(gslist_ptr: ctypes.POINTER(_AtkGSList)) -> list[Any]:
 class DecoderBridge:
     """High-level wrapper around libsigrokdecode."""
 
-    def __init__(self, runtime_path: Path | str | None = None):
-        self._dll = _load_dll()
-        self._runtime_path = Path(runtime_path) if runtime_path else Path(__file__).parent.parent
+    def __init__(self, project_root: Path | str | None = None):
+        if project_root is None:
+            project_root = Path(__file__).parent.parent.resolve()
+        self._project_root = Path(project_root)
+        self._dll_path = self._find_dll()
+        self._dll = ctypes.CDLL(str(self._dll_path))
         self._init_ok = False
         self._frames: list[DecodeFrame] = []
         self._ann_cb = None
+        self._setup_signatures()
+
+    @staticmethod
+    def _find_dll() -> Path:
+        candidates = [
+            Path(__file__).parent.parent / "lib" / "bin" / "libsigrokdecode-4.dll",
+            Path(__file__).parent.parent / "libsigrokdecode-4.dll",
+        ]
+        for p in candidates:
+            if p.exists():
+                return p
+        raise FileNotFoundError("libsigrokdecode-4.dll not found")
+
+    def _setup_signatures(self) -> None:
+        dll = self._dll
+
+        # PyInit_sigrokdecode — creates the sigrokdecode Python module
+        dll.PyInit_sigrokdecode.argtypes = []
+        dll.PyInit_sigrokdecode.restype = ctypes.py_object
+
+        # Search path
+        dll.srd_decoder_searchpath_add.argtypes = [ctypes.c_char_p]
+        dll.srd_decoder_searchpath_add.restype = ctypes.c_int
+
+        # decoder.c
+        dll.atk_decoder_load_all.argtypes = []
+        dll.atk_decoder_load_all.restype = ctypes.c_int
+
+        dll.atk_decoder_list.argtypes = []
+        dll.atk_decoder_list.restype = ctypes.POINTER(_AtkGSList)
+
+        dll.atk_decoder_get_by_id.argtypes = [ctypes.c_char_p]
+        dll.atk_decoder_get_by_id.restype = ctypes.POINTER(_AtkDecoder)
+
+        # session.c
+        dll.atk_decoder_session_new.argtypes = []
+        dll.atk_decoder_session_new.restype = ctypes.c_void_p
+
+        dll.atk_decoder_session_start.argtypes = [ctypes.c_void_p]
+        dll.atk_decoder_session_start.restype = ctypes.c_int
+
+        dll.atk_decoder_session_metadata_set_samplerate.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint64,
+        ]
+        dll.atk_decoder_session_metadata_set_samplerate.restype = ctypes.c_int
+
+        dll.atk_decoder_session_send.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint64,
+            ctypes.c_uint64,
+            ctypes.c_void_p,
+        ]
+        dll.atk_decoder_session_send.restype = ctypes.c_int
+
+        dll.atk_decoder_session_send_eof.argtypes = [ctypes.c_void_p]
+        dll.atk_decoder_session_send_eof.restype = ctypes.c_int
+
+        dll.atk_decoder_session_destroy.argtypes = [ctypes.c_void_p]
+        dll.atk_decoder_session_destroy.restype = ctypes.c_int
+
+        # instance.c
+        dll.atk_decoder_inst_new.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_char_p,
+            ctypes.c_void_p,
+        ]
+        dll.atk_decoder_inst_new.restype = ctypes.c_void_p
+
+        dll.atk_decoder_inst_channel_set_all.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
+        dll.atk_decoder_inst_channel_set_all.restype = ctypes.c_int
+
+        # hash table
+        dll.atk_decoder_hashtable_create.argtypes = []
+        dll.atk_decoder_hashtable_create.restype = ctypes.c_void_p
+
+        dll.atk_decoder_hashtable_destroy.argtypes = [ctypes.c_void_p]
+        dll.atk_decoder_hashtable_destroy.restype = None
+
+        dll.atk_decoder_hashtable_set_option.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(_AtkDecoder),
+            ctypes.c_char_p,
+            ctypes.c_char_p,
+        ]
+        dll.atk_decoder_hashtable_set_option.restype = ctypes.c_int
+
+        dll.atk_decoder_hashtable_set_channel.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_char_p,
+            ctypes.c_int,
+        ]
+        dll.atk_decoder_hashtable_set_channel.restype = None
+
+        # callback
+        dll.atk_decoder_pd_output_callback_add.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
+        dll.atk_decoder_pd_output_callback_add.restype = ctypes.c_int
 
     def init(self) -> None:
-        if sys.version_info < (3, 14):
-            raise RuntimeError(
-                "Python 3.14+ is required for decoder operations. "
-                f"Current: {sys.version_info.major}.{sys.version_info.minor}"
-            )
-        path_bytes = str(self._runtime_path).encode("utf-8")
-        rc = self._dll.atk_decoder_init(path_bytes)
+        """Initialize the decoder subsystem entirely from Python.
+
+        We cannot call srd_init() because it internally calls
+        PyImport_AppendInittab() which crashes if Python is already
+        initialized. Instead we replicate its initialization manually:
+        1. Create sigrokdecode module via PyInit_sigrokdecode
+        2. Register it as a DLL data symbol and in sys.modules
+        3. Set max_session_id to 0 (was -1, signaled "uninitialized")
+        4. Add decoder search paths
+        5. Load all decoder .py files
+        """
+        import ctypes
+
+        # 1. Create the sigrokdecode Python module
+        self._dll.PyInit_sigrokdecode.argtypes = []
+        self._dll.PyInit_sigrokdecode.restype = ctypes.py_object
+        module = self._dll.PyInit_sigrokdecode()
+        if module is None:
+            raise RuntimeError("PyInit_sigrokdecode returned NULL")
+
+        # 2. Write module pointer to mod_sigrokdecode DLL data symbol
+        k32 = ctypes.WinDLL("kernel32")
+        k32.GetProcAddress.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        k32.GetProcAddress.restype = ctypes.c_void_p
+
+        mod_addr = k32.GetProcAddress(
+            ctypes.c_void_p(self._dll._handle), b"mod_sigrokdecode"
+        )
+        if not mod_addr:
+            raise RuntimeError("mod_sigrokdecode symbol not found")
+
+        class _PyObjPtr(ctypes.Structure):
+            _fields_ = [("obj", ctypes.py_object)]
+
+        _PyObjPtr.from_address(mod_addr).obj = module
+        sys.modules["sigrokdecode"] = module
+
+        # 3. Reset max_session_id from -1 to 0 (unblocks decoder loading)
+        mid_addr = k32.GetProcAddress(
+            ctypes.c_void_p(self._dll._handle), b"max_session_id"
+        )
+        if mid_addr:
+            mid_ptr = ctypes.cast(mid_addr, ctypes.POINTER(ctypes.c_int))
+            mid_ptr[0] = 0
+
+        # 4. Add decoder search paths
+        decoders_path = str(self._project_root / "runtime" / "decoders")
+        rc = self._dll.srd_decoder_searchpath_add(decoders_path.encode("utf-8"))
         if rc != ATK_OK:
-            raise RuntimeError(f"atk_decoder_init failed: {rc}")
+            raise RuntimeError(f"srd_decoder_searchpath_add failed: {rc}")
+
+        # 5. Load all protocol decoders
         rc = self._dll.atk_decoder_load_all()
         if rc != ATK_OK:
             raise RuntimeError(f"atk_decoder_load_all failed: {rc}")
+
         self._init_ok = True
 
     def close(self) -> None:
-        if self._init_ok:
-            self._dll.atk_decoder_exit()
-            self._init_ok = False
+        self._init_ok = False
 
     def list_decoders(self, filter_ids: list[str] | None = None) -> list[DecoderInfo]:
         if not self._init_ok:
@@ -324,7 +359,6 @@ class DecoderBridge:
                 desc=(dec.desc or b"").decode("utf-8"),
             )
 
-            # Channels
             for ch_ptr in _gslist_to_list(dec.channels):
                 ch = ctypes.cast(ch_ptr, ctypes.POINTER(_AtkChannel)).contents
                 info.channels.append(
@@ -335,7 +369,6 @@ class DecoderBridge:
                     }
                 )
 
-            # Optional channels
             for ch_ptr in _gslist_to_list(dec.opt_channels):
                 ch = ctypes.cast(ch_ptr, ctypes.POINTER(_AtkChannel)).contents
                 info.opt_channels.append(
@@ -346,14 +379,14 @@ class DecoderBridge:
                     }
                 )
 
-            # Options
             for opt_ptr in _gslist_to_list(dec.options):
                 opt = ctypes.cast(opt_ptr, ctypes.POINTER(_AtkDecoderOption)).contents
-                opt_info = {
-                    "id": (opt.id or b"").decode("utf-8"),
-                    "desc": (opt.desc or b"").decode("utf-8"),
-                }
-                info.options.append(opt_info)
+                info.options.append(
+                    {
+                        "id": (opt.id or b"").decode("utf-8"),
+                        "desc": (opt.desc or b"").decode("utf-8"),
+                    }
+                )
 
             decoders.append(info)
 
@@ -364,7 +397,7 @@ class DecoderBridge:
         decoder_id: str,
         channel_map: dict[str, int],
         options: dict[str, str],
-        edge_events: list[tuple[int, int]],  # (sample_num, level) per sample
+        edge_events: list[tuple[int, int]],
         sample_rate_hz: int,
     ) -> list[DecodeFrame]:
         if not self._init_ok:
@@ -376,25 +409,23 @@ class DecoderBridge:
             raise RuntimeError("atk_decoder_session_new failed")
 
         try:
-            # Get decoder
             dec = self._dll.atk_decoder_get_by_id(decoder_id.encode("utf-8"))
             if not dec:
                 raise ValueError(f"Decoder not found: {decoder_id}")
 
-            # Options
             opts_ht = self._dll.atk_decoder_hashtable_create()
             for k, v in options.items():
                 self._dll.atk_decoder_hashtable_set_option(
                     opts_ht, dec, k.encode("utf-8"), str(v).encode("utf-8")
                 )
 
-            # Instance
-            di = self._dll.atk_decoder_inst_new(sess, decoder_id.encode("utf-8"), opts_ht)
+            di = self._dll.atk_decoder_inst_new(
+                sess, decoder_id.encode("utf-8"), opts_ht
+            )
             self._dll.atk_decoder_hashtable_destroy(opts_ht)
             if not di:
                 raise RuntimeError("atk_decoder_inst_new failed")
 
-            # Channels
             ch_ht = self._dll.atk_decoder_hashtable_create()
             for ch_id, ch_val in channel_map.items():
                 self._dll.atk_decoder_hashtable_set_channel(
@@ -403,13 +434,18 @@ class DecoderBridge:
             self._dll.atk_decoder_inst_channel_set_all(di, ch_ht)
             self._dll.atk_decoder_hashtable_destroy(ch_ht)
 
-            # Callback
-            def _ann_cb(pdata_ptr: ctypes.POINTER(_AtkProtoData), _cb_data: ctypes.c_void_p) -> None:
+            _CBFUNC = ctypes.CFUNCTYPE(
+                None, ctypes.POINTER(_AtkProtoData), ctypes.c_void_p
+            )
+
+            def _ann_cb(pdata_ptr, _cb_data):
                 pdata = pdata_ptr.contents
                 pdo = pdata.pdo.contents
                 if pdo.output_type != ATK_OUTPUT_ANN:
                     return
-                ann = ctypes.cast(pdata.data, ctypes.POINTER(_AtkProtoDataAnn)).contents
+                ann = ctypes.cast(
+                    pdata.data, ctypes.POINTER(_AtkProtoDataAnn)
+                ).contents
                 texts = []
                 i = 0
                 while ann.ann_text[i]:
@@ -424,23 +460,21 @@ class DecoderBridge:
                     )
                 )
 
-            self._ann_cb = ctypes.CFUNCTYPE(None, ctypes.POINTER(_AtkProtoData), ctypes.c_void_p)(_ann_cb)
+            self._ann_cb = _CBFUNC(_ann_cb)
             self._dll.atk_decoder_pd_output_callback_add(
                 sess, ATK_OUTPUT_ANN, self._ann_cb, None
             )
 
-            # Sample rate
-            self._dll.atk_decoder_session_metadata_set_samplerate(sess, sample_rate_hz)
+            self._dll.atk_decoder_session_metadata_set_samplerate(
+                sess, sample_rate_hz
+            )
 
-            # Start
             rc = self._dll.atk_decoder_session_start(sess)
             if rc != ATK_OK:
                 raise RuntimeError(f"atk_decoder_session_start failed: {rc}")
 
-            # Send data
-            self._send_data(sess, edge_events)
+            self._send_sample_data(sess, edge_events, sample_rate_hz)
 
-            # EOF
             self._dll.atk_decoder_session_send_eof(sess)
 
         finally:
@@ -448,47 +482,48 @@ class DecoderBridge:
 
         return self._frames
 
-    def _send_data(
+    def _send_sample_data(
         self,
-        sess: ctypes.c_void_p,
+        sess,
         edge_events: list[tuple[int, int]],
+        sample_rate_hz: int,
     ) -> None:
-        """Convert edge events to sample buffer and send to decoder."""
         if not edge_events:
             return
 
-        # Build per-sample byte array from edge events
         max_sample = max(s for s, _ in edge_events)
-        # Actually edge_events is sparse; we need full sample buffer
-        # For now, assume caller provides dense (sample, level) tuples
-        # or we reconstruct from edges
-        # Simplification: treat as dense array
-        buf = bytearray()
+        dense = bytearray()
         current_level = 0
-        sample_idx = 0
+        pos = 0
         for s, level in edge_events:
-            while sample_idx < s:
-                buf.append(current_level)
-                sample_idx += 1
+            while pos < s:
+                dense.append(current_level)
+                pos += 1
             current_level = level
-        # Pack bits
+        while pos <= max_sample:
+            dense.append(current_level)
+            pos += 1
+
         packed = bytearray()
-        for i in range(0, len(buf), 8):
+        for i in range(0, len(dense), 8):
             byte = 0
             for j in range(8):
-                if i + j < len(buf) and buf[i + j]:
+                if i + j < len(dense) and dense[i + j]:
                     byte |= 1 << (7 - j)
             packed.append(byte)
 
-        chunk_size = 4096
-        for i in range(0, len(packed), chunk_size):
-            chunk = packed[i : i + chunk_size]
+        chunk_samples = 4 * 1024 * 1024
+        chunk_bytes = (chunk_samples + 7) // 8
+        start_sample = edge_events[0][0]
+
+        for i in range(0, len(packed), chunk_bytes):
+            chunk = packed[i : i + chunk_bytes]
             arr = (ctypes.c_uint8 * len(chunk))(*chunk)
             inbuf = _AtkInputData()
             inbuf.data = arr
             inbuf.constant = 0
-            start_s = i * 8
-            end_s = min((i + len(chunk)) * 8, len(buf))
+            chunk_start = start_sample + i * 8
+            chunk_end = chunk_start + len(chunk) * 8
             self._dll.atk_decoder_session_send(
-                sess, start_s, end_s, ctypes.byref(inbuf)
+                sess, chunk_start, chunk_end, ctypes.byref(inbuf)
             )
