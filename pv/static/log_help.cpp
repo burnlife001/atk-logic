@@ -40,6 +40,14 @@ void LogHelp::close()
     }
 }
 
+void LogHelp::flush()
+{
+    if(m_init){
+        m_log.flush();
+        m_logFile.flush();
+    }
+}
+
 void LogHelp::write(QString log)
 {
     if(m_init){

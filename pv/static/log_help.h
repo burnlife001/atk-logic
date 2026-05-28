@@ -17,6 +17,7 @@ public:
     static void init(QString path);
     static void close();
     static void write(QString log);
+    static void flush();
 
 private:
     static QString m_path;

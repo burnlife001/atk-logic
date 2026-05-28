@@ -47,6 +47,7 @@ void ConnectDevice::CheckDeviceCreanInfo(USBControl *usb, qint32 port)
                     count_2++;
                     QThread::msleep(10);
                     if(count_2>120){
+                        LogHelp::write(QString("    清空MCU缓存时检测到bootloader模式(count_2=%1), 进入固件更新").arg(count_2));
                         usb->m_deviceVersion=0;
                         g_isUpdata=1;
                         usb->EnterBootloader();
@@ -63,10 +64,14 @@ void ConnectDevice::CheckDeviceCreanInfo(USBControl *usb, qint32 port)
                         break;
                 }
             }
+            LogHelp::write(QString("    清空MCU缓存完成 count_2=%1 count_3=%2").arg(count_2).arg(count_3));
         }
         LogHelp::write(QString("    第%1次尝试连接").arg(QString::number(count+1)));
         LogHelp::write(QString("    获取MCU信息.."));
         if(mcuVersions==0 && usb->GetMCUVersion() && usb->ReadSynchronous(data2) && data2->len>0){
+            LogHelp::write(QString("    MCU响应: buf[0]=%1 buf[1]=%2 buf[2]=%3 buf[3]=0x%4")
+                               .arg(data2->buf[0]).arg(data2->buf[1]).arg(data2->buf[2])
+                               .arg(QString::number(data2->buf[3],16)));
             if(data2->buf[0]==0x0a && data2->buf[1]==0x81 && data2->buf[2]==0x01){
                 if(data2->buf[3]==0x61)
                 {
@@ -74,6 +79,7 @@ void ConnectDevice::CheckDeviceCreanInfo(USBControl *usb, qint32 port)
                     mcuVersions=data2->buf[4]*10+data2->buf[5];
                     deviceVersion=data2->buf[6];
                     usb->m_deviceVersion=data2->buf[6];
+                    LogHelp::write(QString("    MCU版本:%1 设备版本:%2 level:%3").arg(mcuVersions).arg(deviceVersion).arg(level));
                     usb->SetResetState(0);
                     usb->SetResetState(1);
                     if(data2->buf)
@@ -92,6 +98,7 @@ void ConnectDevice::CheckDeviceCreanInfo(USBControl *usb, qint32 port)
                 }
                 else if(data2->buf[3]==0x62)
                 {
+                    LogHelp::write(QString("    MCU要求进入Bootloader(0x62), deviceVersion=%1").arg(data2->buf[6]));
                     usb->m_deviceVersion=data2->buf[6];
                     delete[] data2->buf;
                     delete data2;
@@ -101,7 +108,7 @@ void ConnectDevice::CheckDeviceCreanInfo(USBControl *usb, qint32 port)
                 }
             }
         }else
-            LogHelp::write(QString("    获取MCU信息失败"));
+            LogHelp::write(QString("    获取MCU信息失败 mcuVersions=%1 len=%2").arg(mcuVersions).arg(data2->len));
         if(isActive){
             if(data2->buf)
             {
@@ -128,13 +135,18 @@ void ConnectDevice::CheckDeviceCreanInfo(USBControl *usb, qint32 port)
                             usbName="3.0";
                         fpgaVersions=(*(data.pData+5))*100+(*(data.pData+6));
                         minVersion=(*(data.pData+7))*100+(*(data.pData+8));
+                        LogHelp::write(QString("    FPGA版本:%1, 固件要求最低软件版本:%2, 当前软件版本:%3, FPGA最低要求:%4")
+                                           .arg(fpgaVersions).arg(minVersion).arg(APP_VERSION_NUM).arg(FPGA_MIN_VERSION_NUM));
+                        LogHelp::flush();
                         if(FPGA_MIN_VERSION_NUM>fpgaVersions)
                         {
+                            LogHelp::flush();
                             delete[] data2->buf;
                             delete data2;
                             emit SendDeviceCreanInfo("","",port,0,0,0,0,6);
                             return;
                         }else if(APP_VERSION_NUM<minVersion){
+                            LogHelp::flush();
                             delete[] data2->buf;
                             delete data2;
                             emit SendDeviceCreanInfo("","",port,0,0,0,0,7);
