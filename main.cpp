@@ -7,7 +7,9 @@
 #include <QTranslator>
 #include <QQuickWindow>
 #include <QFontDatabase>
+#if defined (QT_NO_DEBUG) && defined (Q_CC_MSVC)
 #include "QBreakpadHandler.h"
+#endif
 #include "./pv/controller/session_controller.h"
 #include "./pv/controller/session_error.h"
 #include "./pv/controller/setting.h"

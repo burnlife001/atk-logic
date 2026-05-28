@@ -1,0 +1,49 @@
+# === Build outputs ===
+debug/
+release/
+*.pdb
+*.ilk
+*.exp
+*.obj
+*.res
+
+# === Qt generated ===
+.qmake.stash
+Makefile
+Makefile.Debug
+Makefile.Release
+ATK-Logic_resource.rc
+.qm/
+moc_*.cpp
+qrc_*.cpp
+
+# === Third-party build artifacts ===
+libusb_src/
+libusb_extracted/
+
+# === Downloaded runtime (CI artifacts) ===
+lib/bin/*.dll
+lib/python3.14/
+
+# === IDE ===
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# === OS ===
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# === Logs & temp ===
+aqtinstall.log
+*.pyc
+__pycache__/
+extract_libusb.py
+check_zip.py
+
+# === Secrets ===
+.env

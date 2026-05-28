@@ -71,7 +71,8 @@ SOURCES += \
         pv/usb/usb_control.cpp \
         pv/usb/usb_hotplug.cpp \
         pv/usb/usb_server.cpp \
-        pv/utils/qtlockedfile/qtlockedfile.cpp
+        pv/utils/qtlockedfile/qtlockedfile.cpp \
+        pv/utils/qtlockedfile/qtlockedfile_win.cpp
 
 HEADERS += \
         lib/include/atk_decoder.h \
@@ -117,6 +118,9 @@ HEADERS += \
         pv/usb/usb_hotplug.h \
         pv/usb/usb_server.h \
         pv/utils/qtlockedfile/qtlockedfile.h
+
+INCLUDEPATH += $$PWD/lib/include
+LIBS += -L$$PWD/lib/bin -lsigrokdecode -llibusb-1.0
 
 win32 {
         QMAKE_CXXFLAGS += /utf-8
