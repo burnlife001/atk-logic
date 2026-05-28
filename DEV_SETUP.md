@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-编译环境完整可用，Debug/Release 均已成功编译并启动界面。首次启动后固件自动更新完成，但随即弹窗提示「软件版本过低，请升级软件」，USB 未连接时界面无法操作。
+编译环境完整可用，Debug/Release 均已成功编译。USB 连接、固件升级、逻辑分析功能正常工作。
 
 ## 已完成的准备工作
 
@@ -64,46 +64,16 @@ E:\__electric\atk-logic\
     └── lib/python3.14/
 ```
 
-## 已知问题：软件版本过低
+## 已解决问题：软件版本过低
 
 ### 现象
-1. 程序界面正常显示
-2. 启动后自动更新固件（进度条完成）
-3. 弹窗：「软件版本过低，请升级软件」
-4. USB 未连接时界面无法操作
+首次启动后固件自动更新完成，弹窗：「软件版本过低，请升级软件」。
 
-### 排查方向
+### 根因
+`connect.cpp:137` — 固件升级后通过 USB 返回 `minVersion=1108`，而代码中 `APP_VERSION_NUM=1066` 不满足要求。
+完整链路：`CheckDeviceCreanInfo` → 读取 FPGA 数据 → `APP_VERSION_NUM(1066) < minVersion(1108)` → `SendDeviceCreanInfo(state=7)` → QML `showText[7]` = "软件版本过低"
 
-#### 可能性1：APP_VERSION 版本号检查
-- `.pro` 中 `VERSION = 1.0.6.6`，`APP_VERSION_NUM=1066`
-- `DEFINES += FPGA_MIN_VERSION_NUM=115`
-- 固件可能要求更高的版本号。检查 `main.cpp:203` 的 `atk_decoder_init` 和 `atk_decoder_load_all` 返回值。
-- 在已安装的 `D:\Programs\ATK-Logic\` 版本中对比版本号或其它参数差异。
-
-#### 可能性2：atk_decoder 初始化失败
-- `main.cpp` 中 `atk_decoder_init()` 返回非 `ATK_OK` 时设置 `ret=1`
-- `atk_decoder_load_all()` 失败时设置 `ret=2`
-- 这些值传递给 QML 层 (`decode_init_code` 属性)，界面可能据此提示版本过低。
-- **排查**：在 `main.cpp` 的 decoder 初始化处加日志，确认 `ret` 值。
-
-#### 可能性3：runtime DLL 版本不匹配
-- `libsigrokdecode-4.dll` 依赖 `libpython3.14.dll`
-- 原始 ATK-Logic 使用 `python37.dll` (Python 3.7)
-- Python 3.14 → 3.7 API 差异可能导致解码器模块加载行为异常。
-- **排查**：如果 `atk_decoder_load_all()` 内部依赖协议解码器 Python 脚本，Python 版本差异可能导致某些解码器无法加载。
-
-#### 可能性4：Decoders 目录未复制
-- `atk_decoder_init()` 接收路径参数，在该路径下查找 `decoders/` 目录
-- 原始安装版 `D:\Programs\ATK-Logic\decoders/` 包含大量协议解码器
-- **排查**：确认 `decoders/` 是否在 exe 同级目录，或在 init 参数指定的路径下。
-
-#### 可能性5：固件版本检查
-- `FPGA_MIN_VERSION_NUM=115` 可能是固件最低版本要求
-- 固件更新后，软件侧检查 FPGA 版本是否满足最低要求
-- **排查**：查看 `data_service` 或 USB 通信层是否有 FPGA 版本比对逻辑。
-
-### 建议排查步骤
-1. 先检查 `decode_init_code` 传给 QML 的值（main.cpp:218 → `0` 表示成功，`1`/`2` 表示失败）
-2. 确认 `decoders/` 目录存在于 exe 运行目录
-3. 对比 `D:\Programs\ATK-Logic\` 中原始安装版的目录结构，补全缺失文件
-4. 如果以上都正常，检查 FPGA 版本号相关逻辑（搜索 `FPGA_MIN_VERSION` 使用位置）
+### 修复
+- `ATK-Logic.pro`: `VERSION = 1.2.2.0`, `APP_VERSION_NUM=1220` (> 固件要求 1108)
+- `log_help.h/cpp`: 新增 `flush()` 方法，确保关键日志及时落盘
+- `connect.cpp`: 增加 MCU/FPGA 全链路诊断日志
