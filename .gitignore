@@ -47,3 +47,4 @@ check_zip.py
 
 # === Secrets ===
 .env
+.codegraph
