@@ -64,6 +64,7 @@ SOURCES += \
         pv/static/zip_helper.cpp \
         pv/thread/connect.cpp \
         pv/thread/sharedthread.cpp \
+        pv/thread/thread_cmd.cpp \
         pv/thread/thread_download.cpp \
         pv/thread/thread_read.cpp \
         pv/thread/thread_work.cpp \
@@ -110,6 +111,7 @@ HEADERS += \
         pv/static/zip_helper.h \
         pv/thread/connect.h \
         pv/thread/sharedthread.h \
+        pv/thread/thread_cmd.h \
         pv/thread/thread_download.h \
         pv/thread/thread_read.h \
         pv/thread/thread_work.h \

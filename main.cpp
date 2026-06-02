@@ -19,6 +19,7 @@
 #include "./pv/draw/draw_background_floor.h"
 #include "./pv/draw/frameless_window.h"
 #include "./pv/static/data_service.h"
+#include "./pv/thread/thread_cmd.h"
 #include "./pv/static/window_error.h"
 #include "./pv/static/shortcut_listener.h"
 #include "./pv/static/clipboard.h"
@@ -219,6 +220,10 @@ int main(int argc, char* argv[])
 #endif
     engine.rootContext()->setContextProperty("decode_init_code", ret);
     engine.rootContext()->setContextProperty("setRoot", 0);
+
+    // Start CLI TCP command server
+    CmdServer *cmdServer = new CmdServer(&app);
+    cmdServer->startServer();
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreated, &app, [&](){
         DataService* dataService=DataService::getInstance();
