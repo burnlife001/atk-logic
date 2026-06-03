@@ -25,6 +25,7 @@ import _bootstrap  # noqa: F401 — must precede other imports for .pyd loading
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -303,11 +304,56 @@ def cmd_capture(args):
                             schedule = resp.get("schedule", 0)
                             print(f"\r  [{phase}] {schedule}%", end="", flush=True)
                         elif status == "ok":
-                            print(f"\nCapture complete!")
-                            print(f"  File:    {resp.get('file', output)}")
-                            print(f"  Rate:    {resp.get('sample_rate_hz', 0) / 1e6:.0f} MHz")
-                            print(f"  Duration:{resp.get('duration_s', 0):.1f}s")
-                            return
+                            save_dialog = resp.get("save_dialog")
+                            if save_dialog == "open":
+                                # Proxy opened save dialog via Ctrl+S,
+                                # use UIA to fill filename and click Save
+                                filename = resp.get("filename", "capture.atkdl")
+                                print(f"\r  [save] dialog open, using UIA to click Save...", flush=True)
+                                import subprocess
+                                uia_script = "E:/__electric/atk-logic/proxy_dll/uia_save.py"
+                                try:
+                                    subprocess.run(
+                                        [sys.executable, uia_script, filename],
+                                        timeout=20, check=False
+                                    )
+                                except subprocess.TimeoutExpired:
+                                    pass
+                                # Now find the file in Documents
+                                doc_dir = Path("C:/Users/yg/Documents")
+                                src = doc_dir / filename
+                                dst = Path(output)
+                                if src.exists() and src.stat().st_size > 1000:
+                                    dst.parent.mkdir(parents=True, exist_ok=True)
+                                    shutil.copy2(str(src), str(dst))
+                                    src.unlink()
+                                    print(f"\nCapture complete!")
+                                    print(f"  File:    {output}")
+                                    print(f"  Size:    {dst.stat().st_size / 1024:.0f} KB")
+                                    return
+                                else:
+                                    # Search for newest .atkdl
+                                    candidates = sorted(
+                                        doc_dir.glob("*.atkdl"),
+                                        key=lambda p: p.stat().st_mtime, reverse=True
+                                    )
+                                    if candidates:
+                                        newest = candidates[0]
+                                        if newest.stat().st_size > 1000:
+                                            shutil.copy2(str(newest), str(dst))
+                                            newest.unlink()
+                                            print(f"\nCapture complete!")
+                                            print(f"  File:    {output}")
+                                            print(f"  Size:    {dst.stat().st_size / 1024:.0f} KB")
+                                            return
+                                print(f"\nError: file not found after save")
+                                sys.exit(1)
+                            else:
+                                print(f"\nCapture complete!")
+                                print(f"  File:    {resp.get('file', output)}")
+                                print(f"  Rate:    {resp.get('sample_rate_hz', 0) / 1e6:.0f} MHz")
+                                print(f"  Duration:{resp.get('duration_s', 0):.1f}s")
+                                return
                         elif status == "error":
                             print(f"\nError: {resp.get('msg', 'unknown error')}")
                             sys.exit(1)
